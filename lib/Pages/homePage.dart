@@ -1,11 +1,12 @@
-import 'package:dinogrow/Models/connect_data.dart';
-import 'package:dinogrow/Models/display_data,dart';
-import 'package:dinogrow/Services/get_connect_data.dart';
-import 'package:dinogrow/services/get_display_data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:bip39/bip39.dart' as bip39;
+import 'package:solana/solana.dart';
+import 'package:web3dart/web3dart.dart' as web3;
+import 'package:http/http.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key});
@@ -16,19 +17,16 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   final storage = const FlutterSecureStorage();
+  Image? _image;
+  String? _chain = ' ';
+  String? _balance;
+  String? _address = '';
+  String truncAddress = '';
 
-  ConnectData connectData = ConnectData();
-  DisplayData displayData = DisplayData();
   @override
   void initState() {
     super.initState();
-    _readData();
-  }
-
-  _readData() async {
-    connectData = await getconnectdata();
-    displayData = await getDisplayData(connectData);
-    setState(() {});
+    _readChain();
   }
 
   @override
@@ -44,18 +42,17 @@ class _MyHomePageState extends State<MyHomePage> {
         ),
       ),
       appBar: AppBar(
-        title: Text("Connected to ${displayData.chainName} "),
+        title: Text("Connected to $_chain"),
       ),
       body: Column(
         children: [
           Row(
             children: [
-              Text(displayData.truncAddress ?? ''),
+              Text(truncAddress),
               IconButton(
                 icon: Icon(Icons.copy),
                 onPressed: () {
-                  Clipboard.setData(
-                      ClipboardData(text: displayData.address ?? ''));
+                  Clipboard.setData(ClipboardData(text: _address!));
                 },
               ),
             ],
@@ -64,31 +61,84 @@ class _MyHomePageState extends State<MyHomePage> {
             children: [
               CircleAvatar(
                 backgroundColor: Colors.transparent,
-                child: displayData.chainLogo,
+                child: _image,
               ),
               Text(
-                displayData.balance ?? 'Loading...',
+                _balance ?? 'Loading...',
                 style: const TextStyle(fontSize: 17),
               ),
             ],
           ),
-          ElevatedButton(
-            onPressed: () {
-              GoRouter.of(context).go("/random");
-            },
-            style: ElevatedButton.styleFrom(
-                minimumSize: const Size(220, 50),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(
-                  20,
-                ))),
-            child: const Text(
-              'Play',
-              style: TextStyle(fontSize: 17),
-            ),
-          )
         ],
       ),
     );
   }
+
+  _readChain() async {
+    String rpc = '';
+    await dotenv.load(fileName: ".env");
+    final chain = await storage.read(key: 'chain');
+    final mnemonic = await storage.read(key: 'mnemonic');
+    setState(() {
+      _chain = chain;
+    });
+    switch (chain) {
+      case 'bsc':
+        rpc = dotenv.env['QUICKNODE_BSC_TESTNET'].toString();
+        _image = Image.asset(
+          "assets/binance.png",
+        );
+        _balanceEvm(rpc, mnemonic);
+      case 'polygon':
+        rpc = dotenv.env['QUICKNODE_POLYGON_TESTNET'].toString();
+        _image = Image.asset(
+          "assets/polygon.png",
+        );
+        _balanceEvm(rpc, mnemonic);
+      case 'solana':
+        rpc = dotenv.env['QUICKNODE_SOLANA_DEVNET'].toString();
+        _image = Image.asset(
+          "assets/solana.png",
+        );
+        _balanceSolana(rpc, mnemonic);
+    }
+  }
+
+  void _balanceSolana(String rpc, String? mnemonic) async {
+    final keypair = await Ed25519HDKeyPair.fromMnemonic(mnemonic!);
+    _address = keypair.address;
+    String wsUrl = rpc.replaceFirst('https', 'wss');
+    final client = SolanaClient(
+      rpcUrl: Uri.parse(rpc),
+      websocketUrl: Uri.parse(wsUrl),
+    );
+    final getBalance = await client.rpcClient
+        .getBalance(_address!, commitment: Commitment.confirmed);
+    final balance = (getBalance!.value) / lamportsPerSol;
+    setState(() {
+      _balance = balance.toString();
+      truncAddress = truncateString(_address!);
+    });
+  }
+
+  void _balanceEvm(String rpc, String? mnemonic) async {
+    final hex = bip39.mnemonicToSeedHex(mnemonic!);
+    final address = web3.EthPrivateKey.fromHex(hex).address;
+
+    var httpClient = Client();
+    var ethClient = web3.Web3Client(rpc, httpClient);
+
+    web3.EtherAmount balance = await ethClient.getBalance(address);
+    _address = address.toString();
+    setState(() {
+      truncAddress = truncateString(_address!);
+      _balance = balance.getValueInUnit(web3.EtherUnit.ether).toString();
+    });
+  }
+}
+
+String truncateString(String input) {
+  String first = input.substring(0, 3);
+  String last = input.substring(input.length - 3);
+  return '$first...$last';
 }

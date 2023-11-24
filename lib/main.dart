@@ -1,5 +1,4 @@
 import 'package:dinogrow/Pages/Login.dart';
-import 'package:dinogrow/Pages/gamePage.dart';
 import 'package:dinogrow/Pages/generateAccount.dart';
 import 'package:dinogrow/Pages/homePage.dart';
 import 'package:dinogrow/Pages/recoverAccount.dart';
@@ -48,11 +47,6 @@ final GoRouter _router = GoRouter(routes: <GoRoute>[
       path: '/home',
       builder: (context, state) {
         return const MyHomePage();
-      }),
-  GoRoute(
-      path: '/random',
-      builder: (context, state) {
-        return const RandomNumberGame();
       }),
 ]);
 
